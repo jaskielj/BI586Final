@@ -1,7 +1,7 @@
 source("http://bioconductor.org/biocLite.R")
 biocLite("DESeq2")
 
-
+load("workspace.Rdata")
 
 ###conduct array quality metrics to detect and remove outliers
 
