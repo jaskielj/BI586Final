@@ -1,17 +1,9 @@
-source("http://bioconductor.org/biocLite.R")
-biocLite("DESeq2")
+
 
 load("workspace.Rdata")
 
-###conduct array quality metrics to detect and remove outliers
 
-#install.packages("BiocManager")
-library("BiocManager")
-BiocManager::install("genefilter")
-BiocManager::install("affycoretools")
-BiocManager::install("arrayQualityMetrics")
-BiocManager::install("Biobase")
-BiocManager::install("rnaseqWrapper")
+
 library(DESeq2) 
 library(affycoretools)
 library(arrayQualityMetrics)
@@ -19,9 +11,8 @@ library(genefilter)
 library(Biobase)
 library(ggplot2)
 
+###conduct array quality metrics to detect and remove outliers
 
-#biocLite("BiocParallel")
-library("BiocParallel", lib.loc="/Library/Frameworks/R.framework/Versions/3.2/Resources/library/")
 
 sessionInfo()
 packageVersion("DESeq2")
@@ -133,7 +124,11 @@ datExpr0 = as.data.frame(t(dat))
 gsg = goodSamplesGenes(datExpr0, verbose = 3);
 gsg$allOK #if TRUE, no outlier genes, if false run the script below
 
+####Start here if load workspace####
+
+
 ### Outlier detection incorporated into trait measures. 
+setwd("/Users/13018/Documents/Ecological_Genomics/cichlid_jaw")
 traitData= read.csv("WGCNA_traits.csv", row.names=1)
 dim(traitData)
 head(traitData)
@@ -152,29 +147,23 @@ head(datTraits)
 head(datExpr0)
 
 #sample dendrogram and trait heat map showing outliers
-A=adjacency(t(datExpr0),type="signed")
-# this calculates the whole network connectivity we choose signed because we care about direction of gene expression
+A=adjacency(t(datExpr0),type="signed") #Signed to show direction of gene expression
 k=as.numeric(apply(A,2,sum))-1
-# standardized connectivity
 Z.k=scale(k)
 thresholdZ.k=-2.5 # often -2.5
 outlierColor=ifelse(Z.k<thresholdZ.k,"red","black")
 sampleTree = flashClust(as.dist(1-A), method = "average")
-# Convert traits to a color representation where red indicates high values
-traitColors=data.frame(numbers2colors(datTraits,signed=FALSE))
+traitColors=data.frame(numbers2colors(datTraits,signed=FALSE)) # Convert traits to a color representation where red indicates high values
 dimnames(traitColors)[[2]]=paste(names(datTraits))
 datColors=data.frame(outlierC=outlierColor,traitColors)
 # Plot the sample dendrogram and the colors underneath.
-plotDendroAndColors(sampleTree,groupLabels=names(datColors), colors=datColors,main="Sample dendrogram and trait heatmap")
+plotDendroAndColors(sampleTree,groupLabels=names(datColors), colors=datColors)
 
 save(datExpr0, datTraits, file="jaw_Samples_Traits_ALL.RData")
 
 #Figure out proper SFT
-# Choose a set of soft-thresholding powers
 powers = c(seq(1,14,by=2), seq(15,30, by=0.5)); #may need to adjust these power values to hone in on proper sft value
-# Call the network topology analysis function
 sft = pickSoftThreshold(datExpr0, powerVector = powers, networkType="signed", verbose = 2) #want smallest value, closest to 0.9 (but still under)
-
 # Plot the results:
 sizeGrWindow(9, 5)
 par(mfrow = c(1,2));
@@ -185,7 +174,6 @@ plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
      main = paste("Scale independence"));
 text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
      labels=powers,cex=cex1,col="red");
-# this line corresponds to using an R^2 cut-off of h
 abline(h=0.90,col="red")
 # Mean connectivity as a function of the soft-thresholding power
 plot(sft$fitIndices[,1], sft$fitIndices[,5],
@@ -193,35 +181,33 @@ plot(sft$fitIndices[,1], sft$fitIndices[,5],
      main = paste("Mean connectivity"))
 text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
 
+### DO NOT RUN ####
+
 softPower=15 #smallest value to plateau at ~0.85
 adjacency=adjacency(datExpr0, power=softPower,type="signed") #must change method type here too!!
-#heatmap(adjacency, labRow=FALSE, labCol=FALSE)
-
 #translate the adjacency into topological overlap matrix and calculate the corresponding dissimilarity:
 TOM= TOMsimilarity(adjacency,TOMType = "signed")
 dissTOM= 1-TOM
-
 save(TOM,file="TOM.RDS")
+
+#####################
 
 library(flashClust)
 geneTree= flashClust(as.dist(dissTOM), method="average")
 sizeGrWindow(10,6)
-# pdf(file="dendrogram_thresh16.5_signed_1868.pdf", width=20, height=20)
 plot(geneTree, xlab="", sub="", main= "Gene Clustering on TOM-based dissimilarity", labels= FALSE,hang=0.04)
-# dev.off()
 #each leaf corresponds to a gene, branches grouping together densely are interconnected, highly co-expressed genes
 
-minModuleSize=90 #we only want large modules
+minModuleSize=200 #we only want large modules
 dynamicMods= cutreeDynamic(dendro= geneTree, distM= dissTOM, deepSplit=2, pamRespectsDendro= FALSE, minClusterSize= minModuleSize)
 table(dynamicMods)
 
 dynamicColors= labels2colors(dynamicMods)
-#plot dendrogram and colors underneath, pretty sweet
+#plot dendrogram and colors underneath
 sizeGrWindow(8,6)
 plotDendroAndColors(geneTree, dynamicColors, "Dynamic Tree Cut", dendroLabels= FALSE, hang=0.03, addGuide= TRUE, guideHang= 0.05, main= "Gene dendrogram and module colors")
 
 #Merg modules whose expression profiles are very similar
-#calculate eigengenes
 MEList= moduleEigengenes(datExpr0, colors= dynamicColors,softPower = 15)
 MEs= MEList$eigengenes
 #Calculate dissimilarity of module eigenegenes
@@ -231,12 +217,12 @@ METree= flashClust(as.dist(MEDiss), method= "average")
 
 save(dynamicMods, MEList, MEs, MEDiss, METree, file= "Network_crep_nomerge.RData")
 
+##################
+
 lnames = load(file = "Network_crep_nomerge.RData")
-#plot
 sizeGrWindow(7,6)
 plot(METree, main= "Clustering of module eigengenes", xlab= "", sub= "")
-
-MEDissThres= 0.38
+MEDissThres= 0.4
 abline(h=MEDissThres, col="red")
 
 merge= mergeCloseModules(datExpr0, dynamicColors, cutHeight= MEDissThres, verbose =3)
@@ -246,7 +232,7 @@ mergedMEs= merge$newMEs
 
 pdf(file="MergeNetwork.pdf", width=20, height=20)
 plotDendroAndColors(geneTree, cbind(dynamicColors, mergedColors), c("Dynamic Tree Cut", "Merged dynamic"), dendroLabels= FALSE, hang=0.03, addGuide= TRUE, guideHang=0.05)
-dev.off()
+
 
 moduleColors= mergedColors
 colorOrder= c("grey", standardColors(50))
@@ -280,12 +266,10 @@ moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
 #represent module trait correlations as a heatmap
 quartz()
 sizeGrWindow(12,8)
-# Will display correlations and their p-values
 textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
                    signif(moduleTraitPvalue, 1), ")", sep = "");
 dim(textMatrix) = dim(moduleTraitCor)
 par(mar = c(6, 8.5, 3, 3));
-# Display the correlation values within a heatmap plot
 labeledHeatmap(Matrix = moduleTraitCor,
                xLabels = names(datTraits),
                yLabels = names(MEs),
@@ -299,8 +283,7 @@ labeledHeatmap(Matrix = moduleTraitCor,
                main = paste("Module-trait relationships"))
 
 #Gene relationship to trait and important modules:
-# Define variable weight containing the weight column of datTrait - leave weight as variable, but change names in first 2 commands
-weight = as.data.frame(datTraits$Tooth); #change Lipidrobust to your trait name
+weight = as.data.frame(datTraits$Tooth);
 names(weight) = "Tooth"
 # names (colors) of the modules
 modNames = substring(names(MEs), 3)
@@ -315,7 +298,7 @@ names(GSPvalue) = paste("p.GS.", names(weight), sep="")
 
 #Gene-trait significance correlation plots
 # par(mfrow=c(2,3))
-module = "black"
+module = "lightgreen"
 column = match(module, modNames);
 moduleGenes = moduleColors==module;
 sizeGrWindow(7, 7);
@@ -326,28 +309,22 @@ verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
                    ylab = "Gene Sig for Tooth Shape",
                    main = paste("MM vs. GS\n"),
                    cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module)
-
-#names(dis)
 sizeGrWindow(8,7);
-which.module="black" #pick module of interest
+which.module="lightgreen" #pick module of interest
 ME=MEs[, paste("ME",which.module, sep="")]
 genes=datExpr0[,moduleColors==which.module ] #replace where says subgene below to plot all rather than just subset
 
-#quartz()
-# par(mfrow=c(2,1), mar=c(0.3, 5.5, 3, 2))
 par(mfrow=c(2,1), mar=c(0.3, 5.5, 5, 2))
 plotMat(t(scale(genes) ),nrgcols=30,rlabels=F, clabels=rownames(genes), rcols=which.module)
 par(mar=c(5, 4.2, 0, 0.7))
 barplot(ME, col=which.module, main="", cex.main=2,
         ylab="eigengene expression",xlab="sample")
-#this is a cool plot where you can see that genes in this module are upregulated in the pH7.5 treatment
 
 ##############################heatmap of module expression with bar plot of trait of interest by sample...
-#here we just have binary traits, but if you have a continuous trait this code is cool
 sizeGrWindow(8,7);
-which.module="black" #pick module of interest
-which.trait="Tooth" #change trait of interest here
-datTraits=datTraits[order((datTraits$PC1),decreasing=T),]#change trait of interest here
+which.module="magenta" #pick module of interest
+which.trait="PC2" #change trait of interest here
+datTraits=datTraits[order((datTraits$Carnivore),decreasing=T),]#change trait of interest here
 
 trait=datTraits[, paste(which.trait)]
 genes=datExpr0[,moduleColors==which.module ] #replace where says subgene below to plot all rather than just subset
@@ -358,39 +335,41 @@ par(mfrow=c(2,1), mar=c(0.3, 5.5, 3, 2))
 plotMat(t(scale(genes) ),nrgcols=30,rlabels=F, clabels=rownames(genes), rcols=which.module)
 par(mar=c(5, 4.2, 0, 0.7))
 barplot(trait, col=which.module, main="", cex.main=2,
-        ylab="fvfm",xlab="sample")#change trait of interest here
+        ylab="PC2 Score",xlab="Sample")#change trait of interest here
 
 #Making VSD files by module for GO plot functions
 vs=t(datExpr0)
-cands=names(datExpr0[moduleColors=="black"]) #black  blue brown green  grey  pink   red 
+cands=names(datExpr0[moduleColors=="lightgreen"]) #black  blue brown green  grey  pink   red 
 
 c.vsd=vs[rownames(vs) %in% cands,]
 head(c.vsd)
 nrow(c.vsd) #should correspond to module size
 table(moduleColors)
-#moduleColors
-#black         blue       coral2     darkgrey  floralwhite       grey60        ivory 
-#1338         2928         1167         1088          895          206          564 
-#mediumorchid   orangered4       purple    steelblue 
-#478         1557          615         1749
-head(c.vsd)
-write.csv(c.vsd,"rlog_black.csv",quote=F)
 
-#Gene relationship to trait and important modules: Gene Significance and Module membership
-allkME =as.data.frame(signedKME(t(dat), MEs))
-head(allkME)
-vsd=read.csv(file="rlog_black.csv", row.names=1)
-head(vsd)
-gg=read.table("Crep454_iso2gene.tab", sep="\t")
-head(gg)
-library(pheatmap)
+moduleColors<-as.data.frame(moduleColors)
+geneModuleMembership$module<-moduleColors$moduleColors
+
+candidates<-read.csv("id_genes.csv")
+candidates2 <- candidates[,-1]
+rownames(candidates2) <- candidates[,1]
+
+mat_keep_rows <- c(rownames(candidates2))
+mat_subset <- geneModuleMembership[rownames(geneModuleMembership) %in% mat_keep_rows, ]      # Extract rows from matrix
+mat_subset
+onlycands <- merge(mat_subset, candidates2, by=0, all=TRUE)
+onlycands <- onlycands[, -c(2:13)]
+
+write.csv(onlycands, file= "onlycands.csv")
+
+
+
 
 ############################################
-whichModule="ivory"
+whichModule="lightgreen"
 top=100
 
 datME=MEs
-vsd <- read.csv("Crep_wgcna_allgenes.csv", row.names=1)
+vsd <- read.csv("rlog_lightgreen.csv", row.names=1)
 head(vsd)
 datExpr=t(vsd)
 modcol=paste("kME",whichModule,sep="")
@@ -400,25 +379,6 @@ hubs=sorted[1:top,]
 # attaching gene names
 summary(hubs)
 
-gnames=c();counts=0
-for(i in 1:length(hubs[,1])) {
-  if (row.names(hubs)[i] %in% gg$V1) { 
-    counts=counts+1
-    gn=gg[gg$V1==row.names(hubs)[i],2]
-    if (gn %in% gnames) {
-      gn=paste(gn,counts,sep=".")
-    }
-    gnames=append(gnames,gn) 
-  } else { 
-    gnames=append(gnames,i)
-  }
-} 
-row.names(hubs)=gnames
-length(hubs)
-
-contrasting = colorRampPalette(rev(c("chocolate1","#FEE090","grey10", "cyan3","cyan")))(100)
-#quartz()
-pheatmap(hubs,scale="row",col=contrasting,border_color=NA, main=paste(whichModule,"top",top,"kME",sep=""))
 
 
 
